@@ -1,10 +1,11 @@
+import struct
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import MiniBatchKMeans
 from scipy.stats import entropy
 
 # ====== 1. Wczytanie pliku i zamiana na bity ======
-file_path = "2019-06-20-Jezioro-Lednickie-010-Pano-1024x663.jpg"
+file_path = input("Podaj nazwe pliku ")
 
 with open(file_path, "rb") as f:
     file_bytes = np.frombuffer(f.read(), dtype=np.uint8)
@@ -13,8 +14,8 @@ bits = np.unpackbits(file_bytes)
 print(f"Liczba bitów: {len(bits):,}")
 
 # ====== 2. Ustal parametry ======
-segment_size_bits =int(len(bits)/1000)    # 1 MB segment = 8 milionów bitów
-n_clusters = 1000                 # liczba grup
+segment_size_bits =int(len(bits)/10240)    # 1 KB segment = 8 milionów bitów
+n_clusters = 253                 # liczba grup im mniejsza, tym wieksza kompresja
 
 n_segments = len(bits) // segment_size_bits
 print(f"Liczba segmentów: {n_segments}")
@@ -56,50 +57,40 @@ cluster_names = {label: f"{label}\n" for label in unique_labels}
 # Generujemy listę nazw dla każdego segmentu
 segment_labels = [cluster_names[label] for label in labels]
 
-# ====== 5. Wyniki ======
-for i, label in enumerate(labels):
-    print(f"Segment {i}: klaster {label}")
-plt.figure(figsize=(12, 5))
+print("\n=== CIĄGI BITÓW DLA KAŻDEGO KLASTRA ===")
 
+for cluster_id in np.unique(labels):
+    # znajdź segmenty należące do danego klastra
+    segment_indices = np.where(labels == cluster_id)[0]
+    
+    print(f"\n--- Klastr {cluster_id} ---")
+    print(f"Liczba segmentów: {len(segment_indices)}")
 
-# --- (A) Wykres w przestrzeni cech (entropia vs średnia liczba 1)
-plt.subplot(1, 2, 1)
-plt.scatter(features[:, 0], features[:, 3], c=labels, s=40, cmap='tab20')
-plt.xlabel("Średnia liczba bitów '1'")
-plt.ylabel("Entropia segmentu")
-plt.title("Klastry w przestrzeni cech")
-plt.colorbar(label="Numer klastra")
+    # połącz wszystkie bity z segmentów tego klastra
+    cluster_bits = np.concatenate([
+        bits[i*segment_size_bits : (i+1)*segment_size_bits]
+        for i in segment_indices
+    ])
 
-# --- (B) Wykres kolejności segmentów w pliku
-plt.subplot(1, 2, 2)
-plt.scatter(range(len(labels)), labels, c=labels, cmap='tab20', s=40)
-plt.xlabel("Numer segmentu (kolejność w pliku)")
-plt.ylabel("Numer klastra")
-plt.title("Rozmieszczenie klastrów w pliku")
-#plt.tight_layout()
-#plt.show()
+    # wypisz pierwszy fragment (bo może być ogromny)
+    preview = ''.join(map(str, cluster_bits[:128]))  # 128 pierwszych bitów
+    print(f"Przykład bitów (pierwsze 128): {preview}")
+    print(f"Łączna liczba bitów w klastrze: {len(cluster_bits):,}\n")
 
-with open("mapa_klastrow.bin", "wb") as f:
-	for i, (label, name) in enumerate(zip(labels, segment_labels)):
-		text_bytes = name.encode('utf-8')
-		bits = np.unpackbits(np.frombuffer(text_bytes, dtype=np.uint8))
-		f.write(bits)
-		name="\n"
-		text_bytes = name.encode('utf-8')
-		bits = np.unpackbits(np.frombuffer(text_bytes, dtype=np.uint8))
-		f.write(bits)
-with open("mapa_klastrow.bin", "wb") as f:
-	text="\n\n"
-	text_bytes = text.encode('utf-8')
-	bits = np.unpackbits(np.frombuffer(text_bytes, dtype=np.uint8))
-	f.write(bits)
-with open("mapa_klastrow.bin", "wb") as f:
-	for label in unique_labels:
-		indices = np.where(labels == label)[0]
-		cluster_bits = np.concatenate([bits[i*segment_size_bits:(i+1)*segment_size_bits] for i in indices])
+with open("mapa_klastrow.bin","wb") as f:
+	for cluster_id in np.unique(labels):
+		segment_indices = np.where(labels == cluster_id)[0]
+		cluster_bits = np.concatenate([bits[i*segment_size_bits : (i+1)*segment_size_bits] for i in segment_indices])
+		#identyfikator klastru w 8bitach		
+		f.write(struct.pack("B",cluster_id))
+		#ilosc bitów w klastrze
+		f.write(struct.pack("<I",len(cluster_bits)))
 		cluster_bytes = np.packbits(cluster_bits)
+#		print(len(cluster_bits), "dlugosc bitow")
+		#faktyczne bity		
 		f.write(cluster_bytes)
-		text="\n"
-		text_bytes = text.encode('utf-8')
-		bits = np.unpackbits(np.frombuffer(text_bytes, dtype=np.uint8))
-		f.write(bits)
+	f.write(b"xFF"*5)
+with open("mapa_klastrow.bin","ab") as f:
+	for cluster_id in labels:
+	#id klastrow w odpowiedniej kolejnosci
+        	f.write(struct.pack("B", cluster_id))
