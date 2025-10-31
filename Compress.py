@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import argparse, struct
 import numpy as np
+import os
 from sklearn.cluster import MiniBatchKMeans
+from PIL import Image
+from pathlib import Path 
 
 def cluster_compress(input_path, output_path, chunk_size=64, n_clusters=128):
     data = np.fromfile(input_path, dtype=np.uint8)
@@ -53,6 +56,16 @@ if __name__ == "__main__":
     p.add_argument("--chunk-size", type=int, default=64)
     p.add_argument("--n-clusters", type=int, default=128)
     args = p.parse_args()
-
-    cluster_compress(args.input, args.output, args.chunk_size, args.n_clusters)
+    input_path = Path(args.input) 
+    with open(input_path, "rb") as f:
+        signature = f.read(2)
+        is_bmp = signature == b"BM"
+    if not is_bmp:
+        temp_bmp = input_path.with_suffix(".tmp.bmp")
+        with Image.open(input_path) as img:
+            img.convert("RGB").save(temp_bmp, format="BMP")
+        cluster_compress(temp_bmp, args.output, args.chunk_size, args.n_clusters)
+        os.remove(temp_bmp)
+    else:    	        
+        cluster_compress(args.input, args.output, args.chunk_size, args.n_clusters)
 
